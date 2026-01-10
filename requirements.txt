@@ -1,0 +1,8 @@
+playwright
+groq
+python-dotenv
+rich
+selenium
+webdriver-manager
+python-dotenv
+
