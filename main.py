@@ -6,7 +6,7 @@ import traceback
 from datetime import datetime
 from dotenv import load_dotenv
 import groq
-import schedule  # The new scheduling library
+import schedule
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -201,7 +201,6 @@ def post_to_linkedin(driver, content):
 
     except Exception as e:
         console.print(f"[red]Error posting: {str(e)}[/red]")
-        # driver.save_screenshot("post_error.png") # Uncomment for debugging
         raise
 
 def login_to_linkedin(driver):
@@ -224,8 +223,12 @@ def login_to_linkedin(driver):
         console.print(f"[red]Login Error: {str(e)}[/red]")
         return False
 
-# --- WEEKLY SCHEDULER MODE ---
+# --- UPDATED WEEKLY SCHEDULER MODE (With Custom Topics) ---
 def run_weekly_schedule_mode(schedule_inputs):
+    """
+    schedule_inputs format: List of tuples
+    [('monday', '10:00', 'AI News', 'Dev', 'Tech'), ('friday', '12:00', None, None, None)]
+    """
     options = webdriver.ChromeOptions()
     options.add_argument("--start-maximized")
     options.add_argument("--disable-blink-features=AutomationControlled")
@@ -237,22 +240,36 @@ def run_weekly_schedule_mode(schedule_inputs):
     
     if not login_to_linkedin(driver): return
 
-    def job_wrapper():
-        console.print(f"\n[bold cyan]⏰ Time reached! Generating and Posting... ({datetime.now().strftime('%H:%M')})[/bold cyan]")
-        content = generate_linkedin_content() 
-        if content:
-            post_to_linkedin(driver, content)
-        else:
-            console.print("[red]Content generation failed, skipping this slot.[/red]")
+    # Closure to create a specific job for specific data
+    def create_job(topic, role, industry):
+        def job():
+            display_topic = topic if topic else "Random Topic"
+            console.print(f"\n[bold cyan]⏰ Time reached! Generating '{display_topic}'... ({datetime.now().strftime('%H:%M')})[/bold cyan]")
+            
+            # Pass the custom details (or None) to the generator
+            content = generate_linkedin_content(topic=topic, role=role, industry=industry)
+            if content:
+                post_to_linkedin(driver, content)
+            else:
+                console.print("[red]Content generation failed, skipping this slot.[/red]")
+        return job
 
     console.print("\n[bold green]✅ Registering Schedule:[/bold green]")
-    for day, time_str in schedule_inputs:
+    
+    for day, time_str, topic, role, industry in schedule_inputs:
         day = day.lower().strip()
         time_str = time_str.strip()
+        
         try:
+            # Create a unique job function for this slot
+            specific_job = create_job(topic, role, industry)
+            
             scheduler_method = getattr(schedule.every(), day)
-            scheduler_method.at(time_str).do(job_wrapper)
-            console.print(f"   -> Scheduled for [cyan]Every {day.capitalize()} at {time_str}[/cyan]")
+            scheduler_method.at(time_str).do(specific_job)
+            
+            # Print friendly confirmation
+            topic_msg = f"Topic='{topic}'" if topic else "Topic=Random"
+            console.print(f"   -> Scheduled for [cyan]Every {day.capitalize()} at {time_str}[/cyan] ({topic_msg})")
         except AttributeError:
             console.print(f"[red]   -> Error: '{day}' is not a valid day![/red]")
 
@@ -310,10 +327,10 @@ def generate_and_post_content(custom_topic=None, custom_role=None, custom_indust
 
 def main():
     console.print("[bold]===== LinkedIn Automation =====[/bold]")
-    print("1. One-time Post")
-    print("2. Custom Post")
+    print("1. One-time Post (Random)")
+    print("2. Custom Post (One-time)")
     print("3. Interval Schedule (e.g., Every X hours)")
-    print("4. Weekly Schedule (e.g., Every Tuesday at 13:00)")
+    print("4. Weekly Schedule (Custom Topics)")
     print("5. Exit")
     
     choice = input("\nOption: ").strip()
@@ -333,21 +350,26 @@ def main():
         console.print("[cyan]Enter schedule slots. Type 'done' to finish.[/cyan]")
         schedule_inputs = []
         while True:
+            print("\n--- New Slot ---")
             day = input("Day (e.g., Monday): ").strip()
             if day.lower() == 'done': break
             
-            raw_time = input("Time (24h format, e.g., 13:30): ").strip()
+            raw_time = input("Time (HH:MM): ").strip()
+            formatted_time = raw_time.replace('.', ':')
             
-            formatted_time = raw_time.replace('.', ':')  # Fix 13.30 -> 13:30
-            
-            # Validate format strictly
+            # Ask for custom details for THIS specific slot
+            # Press Enter to skip and leave it random
+            console.print("[dim]Press Enter to leave Random[/dim]")
+            topic = input("Topic: ").strip() or None
+            role = input("Role: ").strip() or None
+            industry = input("Industry: ").strip() or None
+
             try:
-                
                 datetime.strptime(formatted_time, "%H:%M")
-                schedule_inputs.append((day, formatted_time))
+                
+                schedule_inputs.append((day, formatted_time, topic, role, industry))
             except ValueError:
-                console.print(f"[red]Invalid time format '{raw_time}'. Please use HH:MM (e.g., 14:30)[/red]")
-            
+                console.print(f"[red]Invalid time format '{raw_time}'. Please use HH:MM[/red]")
         
         if schedule_inputs:
             run_weekly_schedule_mode(schedule_inputs)
